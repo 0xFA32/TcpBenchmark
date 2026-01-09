@@ -12,3 +12,4 @@ tracing-appender = { workspace = true }
 strum = { version = "0.26", features = ["derive"] }
 crossbeam-channel = "0.5"
 rand = "0.9"
+thiserror = "2.0"

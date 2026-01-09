@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, atomic::AtomicBool},
+    sync::{Arc, PoisonError, atomic::AtomicBool},
     thread,
     time::Duration,
 };
@@ -8,6 +8,7 @@ use bytes::{Bytes, BytesMut};
 use crossbeam_channel::Sender;
 
 use rand::prelude::*;
+use thiserror::Error;
 
 const FOUR_MB: usize = 4 * 1024 * 1024;
 const THREE_MB: usize = 3 * 1024 * 1024;

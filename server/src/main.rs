@@ -15,12 +15,32 @@ enum ServerType {
     AsyncIOUring,
 }
 
+// Configuration for the server.
+pub struct ServerConfig {
+    pub bind_address: String,
+    pub port: usize,
+    pub max_concurrent_streams: usize,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            bind_address: "127.0.0.1".to_string(),
+            max_concurrent_streams: 1024,
+            port: 80,
+        }
+    }
+}
+
 fn main() {
     let server_type = ServerType::Blocking;
     match server_type {
         ServerType::Blocking => {
             setup_logger(server_type);
-            start_blocking_server();
+            if let Err(e) = start_blocking_server(ServerConfig::default()) {
+                tracing::error!("Server failed to start: {}", e);
+                std::process::exit(1);
+            }
         }
         _ => {
             panic!("Not yet implemented server type");
@@ -28,9 +48,9 @@ fn main() {
     }
 }
 
-fn start_blocking_server() -> std::io::Result<()> {
+fn start_blocking_server(server_config: ServerConfig) -> std::io::Result<()> {
     let (tx, rx) = unbounded();
-    let mut blocking_tcp_server = BlockingTcpServer::new();
+    let mut blocking_tcp_server = BlockingTcpServer::new(server_config);
     blocking_tcp_server.start(tx, rx)
 }
 

@@ -263,6 +263,7 @@ dependencies = [
  "crossbeam-channel",
  "rand",
  "strum",
+ "thiserror",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
