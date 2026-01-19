@@ -19,9 +19,17 @@ pub struct BlockingTcpServer {
     total_streams: usize,
 }
 
+/// Connection state.
+#[derive(Eq, PartialEq)]
+enum ConnectionState {
+    Open,
+    Closed,
+}
+
 /// Client connection.
 pub struct ClientConnection {
     stream: TcpStream,
+    state: ConnectionState,
     addr: SocketAddr,
     connected_at: Instant,
 }
@@ -30,19 +38,21 @@ impl ClientConnection {
     fn new(stream: TcpStream, addr: SocketAddr, connected_at: Instant) -> ClientConnection {
         Self {
             stream,
+            state: ConnectionState::Open,
             addr,
             connected_at,
         }
     }
 
-    fn write(&mut self, data: Bytes) -> bool {
-        match self.stream.write(&data) {
+    fn write(&mut self, data: &[u8]) -> bool {
+        match self.stream.write(data) {
             Ok(_) => true,
             Err(_) => false,
         }
     }
 
     fn close(&mut self) {
+        self.state = ConnectionState::Closed;
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 
@@ -154,13 +164,20 @@ impl BlockingTcpServer {
     fn push(data: Bytes, clients: &Arc<Mutex<Vec<ClientConnection>>>) -> bool {
         if let Ok(mut clients) = clients.lock() {
             for client in clients.iter_mut() {
-                if !client.write(data.clone()) {
+                if !client.write(&data) {
                     client.close();
                 }
 
                 // Potentially batch.
                 client.flush();
             }
+
+
+            // Removed closed connections.
+            clients.retain_mut(|client| {
+                client.state != ConnectionState::Closed
+            });
+        
         }
 
         return true;

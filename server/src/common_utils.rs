@@ -17,6 +17,7 @@ static FOUR_MB_GARBAGE: [u8; FOUR_MB] = [0; FOUR_MB];
 static THREE_MB_GARBAGE: [u8; THREE_MB] = [0; THREE_MB];
 static TWO_MB_GARBAGE: [u8; TWO_MB] = [0; TWO_MB];
 
+
 pub fn generate_data(sender: Sender<Bytes>, close: Arc<AtomicBool>) {
     let mut rng = rand::rng();
     loop {
@@ -46,6 +47,7 @@ pub fn generate_data(sender: Sender<Bytes>, close: Arc<AtomicBool>) {
             buf.resize(capacity, 0);
             buf.freeze()
         };
+
 
         match sender.send(payload) {
             Ok(_) => {}
