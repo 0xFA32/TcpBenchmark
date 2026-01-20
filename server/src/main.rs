@@ -59,7 +59,7 @@ fn setup_logger(server_type: ServerType) {
         RollingFileAppender::new(Rotation::HOURLY, "logs", format!("{server_type}.log"));
 
     tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(file_appender))
+        .with(fmt::layer().with_writer(file_appender).with_ansi(false))
         .with(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
         .init();
 }
