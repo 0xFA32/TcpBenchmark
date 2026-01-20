@@ -1,12 +1,13 @@
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use std::io::Write;
+use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::common_utils::{HEADER_LEN, MAGIC};
 use crate::{ServerConfig, common_utils};
 
 // Maximum number of concurrent streams.
@@ -16,7 +17,6 @@ const MAX_CONCURRENT_STREAMS: usize = 1024;
 pub struct BlockingTcpServer {
     server_config: ServerConfig,
     streams: Arc<Mutex<Vec<ClientConnection>>>,
-    total_streams: usize,
 }
 
 /// Connection state.
@@ -44,11 +44,21 @@ impl ClientConnection {
         }
     }
 
-    fn write(&mut self, data: &[u8]) -> bool {
-        match self.stream.write(data) {
+    fn write(&mut self, data: &[u8], id: u64) -> bool {
+        match self.write_payload(data, id) {
             Ok(_) => true,
             Err(_) => false,
         }
+    }
+
+    // TODO: Make it vectored.
+    fn write_payload(&mut self, data: &[u8], id: u64) -> io::Result<usize> {
+        let len = data.len() as u64;
+        self.stream.write_all(&MAGIC.to_be_bytes())?;
+        self.stream.write_all(&id.to_be_bytes())?;
+        self.stream.write_all(&len.to_be_bytes())?;
+        self.stream.write_all(data)?;
+        Ok(data.len() + HEADER_LEN)
     }
 
     fn close(&mut self) {
@@ -67,7 +77,6 @@ impl BlockingTcpServer {
         Self {
             server_config: server_config,
             streams: Arc::new(Mutex::new(Vec::new())),
-            total_streams: 0,
         }
     }
 
@@ -96,18 +105,17 @@ impl BlockingTcpServer {
         });
 
         for stream in listener.incoming() {
-            if self.total_streams > MAX_CONCURRENT_STREAMS {
-                tracing::info!("Rejecting connection as it is full.");
-                continue;
-            }
-
             if stream.is_err() {
                 continue;
             }
 
             let tcp_stream = stream.expect("Expect tcp stream to be available at this point");
-            self.total_streams += 1;
             if let Ok(mut stream_collection) = self.streams.lock() {
+                if stream_collection.len() >= MAX_CONCURRENT_STREAMS {
+                    tracing::info!("Rejecting connection as it is full.");
+                    continue;
+                }
+
                 match tcp_stream.peer_addr() {
                     Ok(remote_addr) => {
                         let client_connection =
@@ -143,6 +151,7 @@ impl BlockingTcpServer {
         close: Arc<AtomicBool>,
         receiver: Receiver<Bytes>,
     ) {
+        let mut id = 0u64;
         loop {
             if close.load(std::sync::atomic::Ordering::Relaxed) {
                 tracing::info!("Closing the client handlers");
@@ -151,7 +160,8 @@ impl BlockingTcpServer {
 
             match receiver.recv_timeout(Duration::from_millis(5)) {
                 Ok(data) => {
-                    Self::push(data, &clients);
+                    id += 1;
+                    Self::push(data, &clients, id);
                 }
                 Err(_) => {
                     continue;
@@ -161,10 +171,10 @@ impl BlockingTcpServer {
     }
 
     // Push data to all the clients.
-    fn push(data: Bytes, clients: &Arc<Mutex<Vec<ClientConnection>>>) -> bool {
+    fn push(data: Bytes, clients: &Arc<Mutex<Vec<ClientConnection>>>, id: u64) -> bool {
         if let Ok(mut clients) = clients.lock() {
             for client in clients.iter_mut() {
-                if !client.write(&data) {
+                if !client.write(&data, id) {
                     client.close();
                 }
 
@@ -172,12 +182,8 @@ impl BlockingTcpServer {
                 client.flush();
             }
 
-
             // Removed closed connections.
-            clients.retain_mut(|client| {
-                client.state != ConnectionState::Closed
-            });
-        
+            clients.retain_mut(|client| client.state != ConnectionState::Closed);
         }
 
         return true;

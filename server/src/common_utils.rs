@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use crossbeam_channel::Sender;
 
 use rand::prelude::*;
@@ -17,6 +17,8 @@ static FOUR_MB_GARBAGE: [u8; FOUR_MB] = [0; FOUR_MB];
 static THREE_MB_GARBAGE: [u8; THREE_MB] = [0; THREE_MB];
 static TWO_MB_GARBAGE: [u8; TWO_MB] = [0; TWO_MB];
 
+pub const MAGIC: u64 = 0x0123_4567_89ab_cdef;
+pub const HEADER_LEN: usize = 24;
 
 pub fn generate_data(sender: Sender<Bytes>, close: Arc<AtomicBool>) {
     let mut rng = rand::rng();
@@ -47,7 +49,6 @@ pub fn generate_data(sender: Sender<Bytes>, close: Arc<AtomicBool>) {
             buf.resize(capacity, 0);
             buf.freeze()
         };
-
 
         match sender.send(payload) {
             Ok(_) => {}
