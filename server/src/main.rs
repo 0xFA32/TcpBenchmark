@@ -33,10 +33,12 @@ impl Default for ServerConfig {
 }
 
 fn main() {
+    println!("Executing main!");
     let server_type = ServerType::Blocking;
     match server_type {
         ServerType::Blocking => {
             setup_logger(server_type);
+            tracing::info!("Starting blocking server!");
             if let Err(e) = start_blocking_server(ServerConfig::default()) {
                 tracing::error!("Server failed to start: {}", e);
                 std::process::exit(1);
@@ -59,7 +61,7 @@ fn setup_logger(server_type: ServerType) {
         RollingFileAppender::new(Rotation::HOURLY, "logs", format!("{server_type}.log"));
 
     tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(file_appender).with_ansi(false))
+        .with(fmt::layer().with_ansi(false).with_writer(file_appender))
         .with(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
         .init();
 }

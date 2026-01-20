@@ -109,6 +109,7 @@ impl BlockingTcpServer {
                 continue;
             }
 
+            tracing::info!("Got a new connection. Going to start working on it.");
             let tcp_stream = stream.expect("Expect tcp stream to be available at this point");
             if let Ok(mut stream_collection) = self.streams.lock() {
                 if stream_collection.len() >= MAX_CONCURRENT_STREAMS {
@@ -127,6 +128,8 @@ impl BlockingTcpServer {
                         continue;
                     }
                 }
+
+                drop(stream_collection);
             } else {
                 tracing::error!("Failed to get the stream collection. Lock is poisoned!");
                 close.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -152,6 +155,9 @@ impl BlockingTcpServer {
         receiver: Receiver<Bytes>,
     ) {
         let mut id = 0u64;
+        let mut throughput = 0u64;
+        let log_duration = Duration::from_secs(5);
+        let mut now = Instant::now();
         loop {
             if close.load(std::sync::atomic::Ordering::Relaxed) {
                 tracing::info!("Closing the client handlers");
@@ -161,11 +167,20 @@ impl BlockingTcpServer {
             match receiver.recv_timeout(Duration::from_millis(5)) {
                 Ok(data) => {
                     id += 1;
+                    throughput += data.len() as u64;
                     Self::push(data, &clients, id);
                 }
                 Err(_) => {
                     continue;
                 }
+            }
+
+            if now.elapsed() > log_duration {
+                now = Instant::now();
+                let bps = throughput / 5;
+                throughput = 0;
+
+                tracing::info!("Pushed {} bps across clients.", bps);
             }
         }
     }
@@ -175,6 +190,7 @@ impl BlockingTcpServer {
         if let Ok(mut clients) = clients.lock() {
             for client in clients.iter_mut() {
                 if !client.write(&data, id) {
+                    tracing::info!("Going to close the client");
                     client.close();
                 }
 

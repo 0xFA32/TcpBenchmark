@@ -22,7 +22,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             address: "127.0.0.1:80".parse().unwrap(),
-            max_concurrent_streams: 32,
+            max_concurrent_streams: 4,
         }
     }
 }
@@ -80,8 +80,11 @@ fn start(client_config: &ClientConfig) -> Result<(), Box<dyn Error>> {
             payloads: Vec::new(),
         };
         clients.push(cursor);
+
+        tracing::info!("Opened a new connection.");
     }
 
+    tracing::info!("Opened all the connections. Going to start working on it.");
     let mut buf = [0u8; 4096];
     loop {
         poll.poll(&mut events, None)?;
@@ -120,6 +123,7 @@ fn start(client_config: &ClientConfig) -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_client_read(cursor: &mut Cursor, buf: &[u8], len: usize) {
+    tracing::info!("Reading from the socket!");
     if cursor.state == ConnectionState::Closed {
         tracing::info!("Connection is already closed!!");
         return;
@@ -175,7 +179,7 @@ fn setup_logger() {
     let file_appender = RollingFileAppender::new(Rotation::HOURLY, "logs", "client.log");
 
     tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(file_appender))
+        .with(fmt::layer().with_ansi(false).with_writer(file_appender))
         .with(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
         .init();
 }
