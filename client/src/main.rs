@@ -94,25 +94,34 @@ fn start(client_config: &ClientConfig) -> Result<(), Box<dyn Error>> {
             break;
         }
 
-        for e in events.iter() {
+        'outer: for e in events.iter() {
             let index = e.token().0;
             if e.is_readable() {
                 let cursor = clients
                     .get_mut(index)
                     .expect("Expect client to be available");
-                match cursor.client.read(&mut buf) {
-                    Ok(0) => {
-                        tracing::error!("Recieved read 0 length");
-                        cursor.state = ConnectionState::Closed;
-                        continue;
-                    }
-                    Ok(len) => {
-                        handle_client_read(cursor, &buf, len);
-                    }
-                    Err(e) => {
-                        tracing::error!("Read error: {}", e);
-                        cursor.state = ConnectionState::Closed;
-                        continue;
+                if cursor.state == ConnectionState::Closed {
+                    continue 'outer;
+                }
+
+                loop {
+                    match cursor.client.read(&mut buf) {
+                        Ok(0) => {
+                            tracing::error!("Recieved read 0 length");
+                            close_client(&mut poll, cursor);
+                            continue 'outer;
+                        }
+                        Ok(len) => {
+                            handle_client_read(cursor, &buf, len);
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::error!("Read error: {}", e);
+                            close_client(&mut poll, cursor);                            
+                            continue 'outer;
+                        }
                     }
                 }
             }
@@ -159,6 +168,11 @@ fn handle_header(cursor: &mut Cursor) -> bool {
 
     cursor.staging.advance(24);
 
+    if len > usize::MAX as u64 {
+        tracing::error!("Very large payload {} !!", len);
+        panic!("Not expected payload");
+    }
+
     cursor.offset = Location::Payload(len as usize);
 
     return cursor.staging.len() > 0;
@@ -173,6 +187,13 @@ fn handle_payload(cursor: &mut Cursor, len: usize) -> bool {
 
     cursor.offset = Location::Header;
     return cursor.staging.len() > 0;
+}
+
+fn close_client(poll: &mut Poll, cursor: &mut Cursor) {
+    if let Err(e) = poll.registry().deregister(&mut cursor.client) {
+        tracing::error!("Error when de-registering client = {}", e);
+    }
+    cursor.state = ConnectionState::Closed;
 }
 
 fn setup_logger() {
